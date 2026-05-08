@@ -1,6 +1,7 @@
 const express = require("express");
 const router = express.Router();
 const Order = require("../models/Order");
+const protect = require("../middleware/authMiddleware");
 
 // GET orders
 router.get("/", async (req, res) => {
@@ -9,9 +10,10 @@ router.get("/", async (req, res) => {
 });
 
 // CREATE order
-router.post("/", async (req, res) => {
+router.post("/", protect, async (req, res) => {
   const order = await Order.create(req.body);
   res.json(order);
 });
+
 
 module.exports = router;
