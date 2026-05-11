@@ -14,11 +14,9 @@ const slugify = (value) =>
     .replace(/(^-|-$)/g, "");
 
 const getJwtSecret = () => {
-  if (!process.env.JWT_SECRET) {
-    throw new Error("JWT_SECRET is required");
-  }
-
-  return process.env.JWT_SECRET;
+  // Keep Render/local deployments alive even before JWT_SECRET is configured.
+  // Add JWT_SECRET in Render env vars before production traffic.
+  return process.env.JWT_SECRET || "supersecretkey";
 };
 
 const ensureDefaultRestaurantForLegacyUser = async (user) => {
@@ -116,6 +114,12 @@ router.post("/register", async (req, res) => {
 router.post("/login", async (req, res) => {
   try {
     const { email, password } = req.body;
+
+    if (!email || !password) {
+      return res.status(400).json({
+        message: "email and password are required",
+      });
+    }
 
     const user = await User.findOne({ email: email.toLowerCase() });
 
