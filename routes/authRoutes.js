@@ -1,34 +1,108 @@
 const express = require("express");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
+const Restaurant = require("../models/Restaurant");
 const User = require("../models/User");
 
 const router = express.Router();
 
+const slugify = (value) =>
+  value
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/(^-|-$)/g, "");
+
+const getJwtSecret = () => {
+  if (!process.env.JWT_SECRET) {
+    throw new Error("JWT_SECRET is required");
+  }
+
+  return process.env.JWT_SECRET;
+};
+
+const ensureDefaultRestaurantForLegacyUser = async (user) => {
+  if (user.restaurantId) {
+    return user.restaurantId;
+  }
+
+  const restaurant = await Restaurant.findOneAndUpdate(
+    { slug: "default-restaurant" },
+    {
+      $setOnInsert: {
+        name: "Default Restaurant",
+        slug: "default-restaurant",
+      },
+    },
+    { new: true, upsert: true }
+  );
+
+  user.restaurantId = restaurant._id;
+  await user.save();
+
+  return restaurant._id;
+};
+
 router.post("/register", async (req, res) => {
   try {
-    const { name, email, password, role } = req.body;
+    const { name, email, password, role, restaurantId, restaurantName } = req.body;
 
-    const existingUser = await User.findOne({ email });
+    if (!name || !email || !password) {
+      return res.status(400).json({
+        message: "name, email, and password are required",
+      });
+    }
+
+    let resolvedRestaurantId = restaurantId;
+
+    if (!resolvedRestaurantId) {
+      const resolvedRestaurantName = restaurantName || `${name}'s Restaurant`;
+      const slug = slugify(resolvedRestaurantName);
+
+      const restaurant = await Restaurant.findOneAndUpdate(
+        { slug },
+        {
+          $setOnInsert: {
+            name: resolvedRestaurantName,
+            slug,
+          },
+        },
+        { new: true, upsert: true }
+      );
+
+      resolvedRestaurantId = restaurant._id;
+    }
+
+    const existingUser = await User.findOne({
+      restaurantId: resolvedRestaurantId,
+      email: email.toLowerCase(),
+    });
 
     if (existingUser) {
       return res.status(400).json({
-        message: "User already exists",
+        message: "User already exists for this restaurant",
       });
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);
 
     const user = await User.create({
+      restaurantId: resolvedRestaurantId,
       name,
       email,
       password: hashedPassword,
       role,
     });
 
-    res.json({
+    res.status(201).json({
       message: "User registered",
-      user,
+      user: {
+        id: user._id,
+        restaurantId: user.restaurantId,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+      },
     });
   } catch (err) {
     console.error(err);
@@ -43,7 +117,7 @@ router.post("/login", async (req, res) => {
   try {
     const { email, password } = req.body;
 
-    const user = await User.findOne({ email });
+    const user = await User.findOne({ email: email.toLowerCase() });
 
     if (!user) {
       return res.status(400).json({
@@ -51,10 +125,7 @@ router.post("/login", async (req, res) => {
       });
     }
 
-    const isMatch = await bcrypt.compare(
-      password,
-      user.password
-    );
+    const isMatch = await bcrypt.compare(password, user.password);
 
     if (!isMatch) {
       return res.status(400).json({
@@ -62,12 +133,15 @@ router.post("/login", async (req, res) => {
       });
     }
 
+    const restaurantId = await ensureDefaultRestaurantForLegacyUser(user);
+
     const token = jwt.sign(
       {
         userId: user._id,
         role: user.role,
+        restaurantId,
       },
-      "supersecretkey",
+      getJwtSecret(),
       {
         expiresIn: "7d",
       }
@@ -77,6 +151,7 @@ router.post("/login", async (req, res) => {
       token,
       user: {
         id: user._id,
+        restaurantId,
         name: user.name,
         email: user.email,
         role: user.role,

@@ -4,7 +4,9 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "dev": "nodemon server.js"
+    "dev": "nodemon server.js",
+    "start": "node server.js",
+    "check": "node --check server.js && node --check models/Restaurant.js && node --check models/User.js && node --check models/Product.js && node --check models/Order.js && node --check middleware/authMiddleware.js && node --check middleware/roleMiddleware.js && node --check routes/authRoutes.js && node --check routes/productRoutes.js && node --check routes/orderRoutes.js"
   },
   "keywords": [],
   "author": "",
